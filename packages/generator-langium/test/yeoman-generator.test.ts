@@ -6,11 +6,8 @@
 
 import { describe, test } from 'vitest';
 import { normalizeEOL } from 'langium';
-import { createHelpers } from 'yeoman-test';
 import * as path from 'node:path';
-import * as url from 'node:url';
-
-const __dirname = url.fileURLToPath(new URL('../', import.meta.url));
+import { createHelpers } from 'yeoman-test';
 
 const answersForCore = {
     extensionName: 'hello-world',
@@ -23,18 +20,17 @@ const answersForCore = {
 };
 
 describe('Check yeoman generator works', () => {
-    const moduleRoot = path.join(__dirname, 'app');
 
     test('Should produce files for Core', async () => {
 
-        const context = createHelpers({}).run(moduleRoot);
-        context.targetDirectory =  path.join(__dirname, '../../../examples/hello-world'); // generate in examples
+        const context = createHelpers({}).run(path.join(__dirname, '../app'));
+        context.targetDirectory = path.join(__dirname, '../../../examples/hello-world'); // generate in examples
         const targetRoot = path.join(__dirname, '../../../examples');
         context.cleanTestDirectory(true); // clean-up examples/hello-world
         await context
             .onGenerator(async (generator) => {
                 // will generate into examples/hello-world instead of examples/hello-world/hello-world
-                generator.destinationRoot(targetRoot); // types are wrong, should be string
+                generator.destinationRoot(targetRoot, false);
             })
             .withAnswers(answersForCore)
             .withArguments('skip-install')
