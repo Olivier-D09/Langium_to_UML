@@ -25,6 +25,8 @@ export function registerUML(connection: Connection, services: LangiumServices): 
     // the vscode extension will perform the following request
     connection.onRequest(RAILROAD_DIAGRAM_REQUEST, (uri: string) => {
         try {
+
+            syncWriteFile('UML.pu','@startuml \n',true);
             const parsedUri = URI.parse(uri);
             const document = documents.getOrCreateDocument(parsedUri);
             if (document.diagnostics?.some(e => e.severity === DiagnosticSeverity.Error)) {
@@ -37,12 +39,11 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             console.log('rules', rules.map(e => e.name));
             rules.forEach(rule => {
                 console.log('rule', rule.name);
-                syncWriteFile('UML.txt',rule.name.toString());
+                const msg = 'class ' + rule.name.toString() + ' { ' + '\n' + '}' + '\n';
                 if( isParserRule(rule)){
-                    console.log ('frag',(rule.fragment));
-                    console.log ('entry',(rule.entry));
-                    console.log ('param',(rule.parameters));
-                    console.log ('wildcard',(rule.wildcard));
+                    syncWriteFile('UML.pu',msg,false);
+                    console.log ('full ',(rule));
+                    console.log ('def',(rule.definition));
                 }
             });
             // Map all local and imported parser rules into a single array
@@ -60,15 +61,22 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             return undefined;
         }
     });
-    function syncWriteFile(filename: string, data: string) {
+    function syncWriteFile(filename: string, data: string,stat: boolean) {
         /**
          * flags:
          *  - w = Open file for reading and writing. File is created if not exists
          *  - a+ = Open file for reading and appending. The file is created if not exists
          */
-        writeFileSync(join(__dirname, filename), data, {
-            flag: 'a',
-        });
+        if (stat === true) {
+            writeFileSync(join(__dirname, filename), data, {
+                flag: 'w',
+            });
+        }
+        else {
+            writeFileSync(join(__dirname, filename), data, {
+                flag: 'a+',
+            });
+        }
         const contents = readFileSync(join(__dirname, filename), 'utf-8');
         return contents;
     }
