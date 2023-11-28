@@ -4,6 +4,7 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+        
         {
             "name": "Run Grammar Extension",
             "type": "extensionHost",
@@ -156,6 +157,19 @@
             "args": ["run", "${relativeFile}"],
             "smartStep": true,
             "console": "integratedTerminal",
+        },
+        {
+        "name": "Run Grammar & railroad",
+            "type": ["extensionHost", "node"],
+            "request": ["launch" , "attach"],
+            "skipFiles": ["<node_internals>/**"],
+            "runtimeExecutable": "${execPath}",
+            "args": [
+                "${workspaceFolder}/examples",
+                "--extensionDevelopmentPath=${workspaceFolder}/packages/langium-vscode"
+            ],
+            "sourceMaps": true,
+            "outFiles": ["${workspaceFolder}/{packages,examples}/*/{lib,out}/**/*.js"]
         }
     ]
 }
