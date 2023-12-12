@@ -12,7 +12,7 @@ import { DiagnosticSeverity } from 'vscode-languageserver';
 import { DOCUMENTS_VALIDATED_NOTIFICATION, RAILROAD_DIAGRAM_REQUEST } from './messages.js';
 import { createGrammarDiagramHtml } from 'langium-railroad';
 import { resolveTransitiveImports } from 'langium/internal';
-import { isParserRule } from '../../../langium/src/grammar/generated/ast.js';
+import {isAlternatives, isAssignment, isCrossReference, isParserRule, isRegexToken, isRuleCall, isTerminalRule, isGroup, isKeyword} from '../../../langium/src/grammar/generated/ast.js';
 
 export function registerUML(connection: Connection, services: LangiumServices): void {
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -26,7 +26,7 @@ export function registerUML(connection: Connection, services: LangiumServices): 
     connection.onRequest(RAILROAD_DIAGRAM_REQUEST, (uri: string) => {
         try {
 
-            syncWriteFile('UML.pu','@startuml \n',true);
+            syncWriteFile('UML.pu','@startuml UML\n',true);
             const parsedUri = URI.parse(uri);
             const document = documents.getOrCreateDocument(parsedUri);
             if (document.diagnostics?.some(e => e.severity === DiagnosticSeverity.Error)) {
@@ -36,15 +36,10 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             const grammar = document.parseResult.value as Grammar;
             const importedGrammars = resolveTransitiveImports(documents, grammar);
             const rules = grammar.rules;
-            console.log('rules', rules.map(e => e.name));
             rules.forEach(rule => {
-                console.log('rule', rule.name);
-                const msg = 'class ' + rule.name.toString() + ' { ' + '\n' + '}' + '\n';
-                if( isParserRule(rule)){
-                    syncWriteFile('UML.pu',msg,false);
-                    console.log ('full ',(rule));
-                    console.log ('def',(rule.definition));
-                }
+                // ParseArg(rule);
+                // ParseLink(rule);
+                TransitiveFun(rule);
             });
             // Map all local and imported parser rules into a single array
             const parserRules = [grammar, ...importedGrammars].flatMap(g => g.rules).filter(GrammarAST.isParserRule);
@@ -79,5 +74,146 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
         const contents = readFileSync(join(__dirname, filename), 'utf-8');
         return contents;
+    }
+    // function ParseLink(rule: GrammarAST.AbstractRule) {
+    //     if( isParserRule(rule)){
+    //         const source = rule.name;
+    //         if (isAlternatives(rule.definition)){
+    //             for (const elem of rule.definition.elements ){
+    //                 if (isAssignment(elem)){
+    //                     const dest = elem.feature;
+    //                     if (isRuleCall(elem.terminal)){
+    //                         const symb = ' *-->';
+    //                         syncWriteFile('UML.pu',source + symb + dest +': ' + elem.terminal.rule.$refText+ ' "' + elem.cardinality + '"' + '\n',false);
+    //                     }
+    //                 }else{
+    //                     console.log('#####################################', elem);
+    //                 }
+    //             }
+    //         }
+    //         if(isGroup(rule.definition)){
+    //             for(const elem in rule.definition.elements){
+    //                 if(isAssignment(elem)){
+    //                     if(isCrossReference(elem.terminal)){
+    //                         const refer = elem.terminal.type.$refText;
+    //                         const symb = ' *-->';
+    //                         syncWriteFile('UML.pu',source + symb + refer +': ' + ' "' + elem.cardinality + '"' + '\n',false);
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+    // function ParseArg(rule: GrammarAST.AbstractRule) {
+    //     if( isParserRule(rule)){
+    //         const msg = '\nclass ' + rule.name.toString() + ' { ' + '\n';
+    //         syncWriteFile('UML.pu',msg,false);
+    //         ExploreClass(rule);
+    //         syncWriteFile('UML.pu','}\n',false);
+    //     }
+    // }
+    // function ExploreClass(rule: GrammarAST.AbstractRule) {
+    //     if (isGroup(rule.definition)){
+    //         GroupExplorer(rule.definition);
+    //     }
+    // }
+    // function GroupExplorer(rule: GrammarAST.Group){
+    //     let op = '';
+    //     let type= '';
+    //     let names = '';
+    //     let feat = '';
+    //     for (const elem of rule.elements ){
+    //         if (isKeyword(elem)){names = elem.value;}
+    //         if (isAssignment(elem)){op = elem.operator;
+    //             if (isRuleCall(elem.terminal)){type = elem.terminal.rule.$refText;}
+    //             // if(isFeatureName)
+    //             if (elem.feature !== null){feat = elem.feature; syncWriteFile('UML.pu',feat + op + type,false);}
+    //             else {syncWriteFile('UML.pu',names + op + type,false);}}
+    //     }
+    //     syncWriteFile('UML.pu','\n',false);
+    // }
+    function AssignRuCa(rule: GrammarAST.Assignment) {
+        const pathRuCa = rule. terminal;
+        if(isRuleCall(pathRuCa)) {
+            if(isTerminalRule(pathRuCa.rule.ref)){
+                const pathTeRu = pathRuCa.rule.ref;
+                isTerminalRule(pathTeRu);
+                syncWriteFile('UML.pu',rule.feature,false);
+                syncWriteFile('UML.pu',rule.operator,false);
+                syncWriteFile('UML.pu',pathTeRu.name,false);
+                if(isRegexToken(pathTeRu.definition)){
+                    syncWriteFile('UML.pu', '\n',false);
+                    //inutile pour l'instant
+                }
+            }
+            if(isParserRule(pathRuCa.rule.ref)){
+                const pathPaRu = pathRuCa.rule.ref;
+                // syncWriteFile('UML.pu',rule.feature,false);
+                // syncWriteFile('UML.pu',rule.operator,false);
+                // syncWriteFile('UML.pu',pathPaRu.name,false);
+                //mal filtré
+                if(isAssignment(pathPaRu.definition))
+                    console.log('########boucler sur la fonction de link##########', pathPaRu.definition);
+            }
+        }
+    }
+
+    function AssignCR(rule: GrammarAST.CrossReference) {
+        const pathCrRe = rule;
+        if(isRuleCall(pathCrRe.terminal)){
+            const pathRuCa = pathCrRe.terminal;
+            syncWriteFile('UML.pu',pathRuCa.rule.$refText,false);
+            if(isTerminalRule(pathRuCa.rule.ref)){
+                const pathTeRu = pathRuCa.rule.ref;
+                if(isRegexToken(pathTeRu.definition)){
+                    // pas utilisé
+                }
+            }
+            if(isParserRule(pathRuCa.rule)){
+                // const pathPaRu = pathRuCa.rule;
+                syncWriteFile('UML.pu', '\n',false);
+                //call à une fonction de formatage
+            }
+        }
+        if(isTerminalRule(pathCrRe.type)){
+            const pathTeRu = pathCrRe.type;
+            if(isRegexToken(pathTeRu.definition)){
+                syncWriteFile('UML.pu', '\n',false);
+            }
+        }
+    }
+
+    function TransitiveFun(rule: GrammarAST.AbstractRule) {
+        if( isParserRule(rule)){
+            syncWriteFile('UML.pu', 'class ' + rule.name +  '{\n',false);
+            if(isAlternatives(rule.definition) || isGroup(rule.definition)){
+                const pathAlt = rule.definition;
+                for(const elem in pathAlt.elements){
+                    if (isKeyword(pathAlt.elements[elem])){
+                        const pathKw = pathAlt.elements[elem];
+                        if(isKeyword(pathKw)){
+                            // syncWriteFile('UML.pu',pathKw.value,false);
+                        }
+                    }
+                    else{
+                        if(isAssignment(pathAlt.elements[elem])){
+                            const pathAsign = pathAlt.elements[elem];
+                            if(isAssignment(pathAsign)){
+                                if(isRuleCall(pathAsign.terminal)){
+                                    AssignRuCa(pathAsign);
+                                }
+                                if(isCrossReference(pathAsign.terminal)){
+                                    AssignCR(pathAsign.terminal);
+                                }
+                                if(isParserRule(pathAsign.terminal)){
+                                    //call à une fonction de formatage
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            syncWriteFile('UML.pu', '\n}\n',false);
+        }
     }
 }
