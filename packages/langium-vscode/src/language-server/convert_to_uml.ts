@@ -37,8 +37,8 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             const importedGrammars = resolveTransitiveImports(documents, grammar);
             const rules = grammar.rules;
             rules.forEach(rule => {
-                MakeClass(rule); // make class & arg of class
-                MakeLink(rule);
+                makeClass(rule); // make class & arg of class
+                makeLink(rule);
 
             });
             // Map all local and imported parser rules into a single array
@@ -75,7 +75,7 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         const contents = readFileSync(join(__dirname, filename), 'utf-8');
         return contents;
     }
-    function AssignRuleCall(rule: GrammarAST.Assignment) {
+    function assignRuleCall(rule: GrammarAST.Assignment) {
         const pathRuleCall = rule.terminal;
         if(isRuleCall(pathRuleCall)) {
             if(isTerminalRule(pathRuleCall.rule.ref)){
@@ -89,12 +89,13 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
     }
 
-    function AssignCrossReference(rule: GrammarAST.CrossReference) {
+    function assignCrossReference(rule: GrammarAST.CrossReference) {
         const pathCrossRef = rule;
         if(isRuleCall(pathCrossRef.terminal)){
             const pathRuleCall = pathCrossRef.terminal;
             if(isTerminalRule(pathRuleCall.rule.ref)){
                 const pathTerminalRule = pathRuleCall.rule.ref;
+                // syncWriteFile('UML.pu',rule.feature + rule.operator + pathTerminalRule.name,false);
                 if(isRegexToken(pathTerminalRule.definition)){
                     // pas utilisé
                 }
@@ -112,8 +113,8 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
     }
 
-    function MakeClass(rule: GrammarAST.AbstractRule) {
-        if( isParserRule(rule)){
+    function makeClass(rule: GrammarAST.AbstractRule) {
+        if(isParserRule(rule)){
             syncWriteFile('UML.pu', 'class ' + rule.name +  '{\n',false);
             if(isAlternatives(rule.definition) || isGroup(rule.definition)){
                 const pathAlternative = rule.definition;
@@ -129,10 +130,10 @@ export function registerUML(connection: Connection, services: LangiumServices): 
                             const pathAsign = pathAlternative.elements[elem];
                             if(isAssignment(pathAsign)){
                                 if(isRuleCall(pathAsign.terminal)){
-                                    AssignRuleCall(pathAsign);
+                                    assignRuleCall(pathAsign);
                                 }
                                 if(isCrossReference(pathAsign.terminal)){
-                                    AssignCrossReference(pathAsign.terminal);
+                                    assignCrossReference(pathAsign.terminal);
                                 }
                                 if(isParserRule(pathAsign.terminal)){
                                     //call à une fonction de formatage
@@ -146,12 +147,15 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
     }
 
-    function LinkRuleCall(rule: GrammarAST.Assignment) {
+    function linkRuleCall(rule: GrammarAST.Assignment) {
         isAssignment(rule);
         let cardinal = '';
         let destName = '';
         if(rule.cardinality !== undefined) {
             cardinal = rule.cardinality;
+        }
+        if(rule.operator === '+=') {
+            cardinal = '*';
         }
         if(isParserRule(rule.$container?.$container)) {
             destName = rule.$container.$container.name;
@@ -160,11 +164,11 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         if(isRuleCall(pathRuleCall)) {
             if(isParserRule(pathRuleCall.rule.ref)){
                 const pathParserRule = pathRuleCall.rule.ref;
-                syncWriteFile('UML.pu',pathParserRule.name + ' ',false);
+                syncWriteFile('UML.pu',destName + ' ',false);
                 if(cardinal !== ''){
                     syncWriteFile('UML.pu','"' + cardinal + '" ',false);
                 }
-                syncWriteFile('UML.pu','*-- ' +'"' + rule.feature + '" ' + destName + '\n',false);
+                syncWriteFile('UML.pu','*-- ' +'"' + rule.feature + '" ' + pathParserRule.name + '\n',false);
             }
         }
         if(isCrossReference(pathRuleCall)) {
@@ -183,7 +187,53 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
     }
 
-    function MakeLink(rule: GrammarAST.AbstractRule){
+    function linkAlternativeRuleCall(rule: GrammarAST.AbstractElement) {
+        const pathRuleCall = rule;
+        let destName = '';
+        if(isParserRule(rule.$container?.$container)) {
+            destName = rule.$container.$container.name;
+        }
+        if(isRuleCall(pathRuleCall)) {
+            if(isParserRule(pathRuleCall.rule.ref)){
+                const pathParserRule = pathRuleCall.rule.ref;
+                syncWriteFile('UML.pu',destName + ' ',false);
+                syncWriteFile('UML.pu','<|-- ' +'"' + pathParserRule.name + '" ' + pathParserRule.name + '\n',false);
+            }
+        }
+    }
+
+    function linkCrossReference(rule: GrammarAST.Assignment) {
+        const pathCrossRef = rule.terminal;
+        if(isCrossReference(pathCrossRef)){
+            let cardinal = '';
+            let destName = '';
+            if(rule.cardinality !== undefined) {
+                cardinal = rule.cardinality;
+            }
+            if(rule.operator === '+=') {
+                cardinal = '*';
+            }
+            if(isParserRule(rule.$container?.$container)) {
+                destName = rule.$container.$container.name;
+            }
+            if(isRuleCall(pathCrossRef.terminal)){
+                const pathRuleCall = pathCrossRef.terminal;
+                if(isTerminalRule(pathRuleCall.rule.ref)){
+                    const pathTerminalRule = pathRuleCall.rule.ref;
+                    syncWriteFile('UML.pu',pathCrossRef.type.$refText,false) ;
+                    if (cardinal !== ''){
+                        syncWriteFile('UML.pu',' "' + cardinal +'"',false);
+                    }
+                    syncWriteFile('UML.pu', ' *-- ' +  '"' + rule.feature + '" ' + destName ,false);
+                    if(isRegexToken(pathTerminalRule.definition)){
+                        // pas utilisé
+                    }
+                }
+            }
+        }
+    }
+
+    function makeLink(rule: GrammarAST.AbstractRule){
         if( isParserRule(rule)){
             if(isAlternatives(rule.definition) || isGroup(rule.definition)){
                 const pathAlternative = rule.definition;
@@ -198,13 +248,21 @@ export function registerUML(connection: Connection, services: LangiumServices): 
                         const pathAsign = pathAlternative.elements[elem];
                         if(isAssignment(pathAsign)){
                             if(isRuleCall(pathAsign.terminal)){
-                                LinkRuleCall(pathAsign);
+                                linkRuleCall(pathAsign);
                             }
                             if(isCrossReference(pathAsign.terminal)){
-                                AssignCrossReference(pathAsign.terminal);
+                                linkCrossReference(pathAsign);
                             }
                             if(isParserRule(pathAsign.terminal)){
                                 //call à une fonction de formatage
+                            }
+                        }
+                    }
+                    else{
+                        if(isRuleCall(pathAlternative.elements[elem])){
+                            const pathRuleCall = pathAlternative.elements[elem];
+                            if(isRuleCall(pathRuleCall)){
+                                linkAlternativeRuleCall(pathAlternative.elements[elem]);
                             }
                         }
                     }
