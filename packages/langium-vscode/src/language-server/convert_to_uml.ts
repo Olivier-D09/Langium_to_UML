@@ -3,18 +3,35 @@
  * This program and the accompanying materials are made available under the
  * terms of the MIT License, which is available in the project root.
  ******************************************************************************/
-import { readFileSync, writeFileSync } from 'fs';
+import { createWriteStream, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import type { Grammar, LangiumServices } from 'langium';
+import type {Grammar, LangiumServices } from 'langium';
 import { DocumentState, GrammarAST, URI, expandToString } from 'langium';
 import type { Connection} from 'vscode-languageserver';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import { DOCUMENTS_VALIDATED_NOTIFICATION, RAILROAD_DIAGRAM_REQUEST } from './messages.js';
 import { createGrammarDiagramHtml } from 'langium-railroad';
 import { resolveTransitiveImports } from 'langium/internal';
-import {isAlternatives, isAssignment, isCrossReference, isParserRule, isRegexToken, isRuleCall, isTerminalRule, isGroup, isKeyword} from '../../../langium/src/grammar/generated/ast.js';
+import {isAlternatives, isAssignment, isCrossReference, isParserRule, isRegexToken, isRuleCall, isTerminalRule, isGroup, isKeyword, isAction, isInferredType} from '../../../langium/src/grammar/generated/ast.js';
+import plantuml from 'node-plantuml/node_modules/commander';
+//import * as vscode from 'vscode';
+
+//import type { GeneratorContext} from 'langium-sprotty';
+//import { LangiumDiagramGenerator } from 'langium-sprotty';
+//import type { SModelRoot } from 'sprotty-protocol';
 
 export function registerUML(connection: Connection, services: LangiumServices): void {
+    // get path of active file
+    // const activeEditor = vscode.window.activeTextEditor;
+    // const activeDocument = activeEditor?.document.uri;
+    // const activePath = activeDocument?.path.split('/').pop();
+    // const activeFileNameSplit = activePath?.split('.').shift();
+
+    // const path = activePathSplit?.join('/');
+    // const pathFile = path + '/' + fileName;
+
+    const fileName = 'arithmetic' + '.pu' ;
+
     const documentBuilder = services.shared.workspace.DocumentBuilder;
     const documents = services.shared.workspace.LangiumDocuments;
     documentBuilder.onBuildPhase(DocumentState.Validated, documents => {
@@ -26,7 +43,7 @@ export function registerUML(connection: Connection, services: LangiumServices): 
     connection.onRequest(RAILROAD_DIAGRAM_REQUEST, (uri: string) => {
         try {
 
-            syncWriteFile('UML.pu','@startuml UML\n \n',true);
+            syncWriteFile(fileName,'@startuml \n \n',true);
             const parsedUri = URI.parse(uri);
             const document = documents.getOrCreateDocument(parsedUri);
             if (document.diagnostics?.some(e => e.severity === DiagnosticSeverity.Error)) {
@@ -38,9 +55,18 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             const rules = grammar.rules;
             rules.forEach(rule => {
                 makeClass(rule); // make class & arg of class
-                makeLink(rule);
-
+                makeLink(rule); // make link between class
             });
+            syncWriteFile(fileName,'@enduml',false);
+
+            try {
+                const gen = plantuml.generate(fileName);
+                gen.out.pip(createWriteStream('UML.png'));
+
+            }catch (e){
+                console.log(e);
+            }
+
             // Map all local and imported parser rules into a single array
             const parserRules = [grammar, ...importedGrammars].flatMap(g => g.rules).filter(GrammarAST.isParserRule);
             const generatedRailroadHtml = createGrammarDiagramHtml(Array.from(parserRules), {
@@ -56,6 +82,13 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             return undefined;
         }
     });
+
+    /**
+     * Ecrit dans un fichier le contenu passé en paramètre et décide si l'on écrase le précédent fichier
+     * @param filename nom du fichier
+     * @param data contenu à écrire
+     * @param stat true si le fichier doit être écrasé, false si il doit être complété
+     */
     function syncWriteFile(filename: string, data: string,stat: boolean) {
         /**
          * flags:
@@ -64,24 +97,83 @@ export function registerUML(connection: Connection, services: LangiumServices): 
          */
         if (stat === true) {
             writeFileSync(join(__dirname, filename), data, {
-                flag: 'w',
+                flag: 'w', // w = Open file for reading and writing. Erase if exist and create if not exists
             });
         }
         else {
             writeFileSync(join(__dirname, filename), data, {
-                flag: 'a+',
+                flag: 'a+', // a+ = Open file for reading and appending. The file is created if not exists
             });
         }
         const contents = readFileSync(join(__dirname, filename), 'utf-8');
         return contents;
     }
+
+    /**
+     * Trouve le nom du parent d'un sous arbre
+     * @param rule contiens le sous arbre dont le parent doit être trouvé
+     * @returns le nom du parent du sous arbre
+     */
+    function recursiveFindParentName(rule: GrammarAST.ParserRule | GrammarAST.Assignment | GrammarAST.Group | GrammarAST.AbstractElement){
+        if(isParserRule(rule)){
+            const pathParserRule = rule;
+            if(isParserRule(pathParserRule)){
+                const parentName = pathParserRule.name; // nom de la classe source
+                return parentName;
+            }
+        }
+        else {
+            return recursiveFindParentName(rule.$container as GrammarAST.Group); // récursion pour remonter l'arbre
+        }
+        return '';
+    }
+
+    /**
+     * Définit la cardinalité d'un sous arbre
+     * @param rule contiens le sous arbre dont la cardinalité doit être extraite
+     * @returns la cardinalité du sous arbre
+     */
+    function defCardinality(rule: GrammarAST.Assignment | GrammarAST.CrossReference | GrammarAST.Alternatives | GrammarAST.Group | GrammarAST.AbstractElement | GrammarAST.Action) {
+        let cardinal = '';
+        // if(isGroup(rule.$container)){
+        //     if(rule.cardinality === '+' && rule.$container.cardinality === '?') {
+        //         cardinal ='"0..1"';
+        //     }
+        //     if(rule.cardinality === '?' && rule.$container.cardinality === '*') {
+        //         cardinal ='"0..*"';
+        //     }
+        //     if(rule.cardinality === '*' && rule.$container.cardinality === '?') {
+        //         cardinal ='"0..*"';
+        //     }
+        // }
+        if(rule.cardinality === '+') {
+            cardinal ='"0..1"';
+        }
+        if(rule.cardinality === '?') {
+            cardinal ='"0..1"';
+        }
+        if(rule.cardinality === '*') {
+            cardinal ='"1..*"';
+        }
+        else {
+            cardinal ='"1..1"';
+        }
+        return cardinal;
+    }
+
+    // function defSign(rule: GrammarAST.Assignment | GrammarAST.CrossReference | GrammarAST.Alternatives) {    }
+
+    /**
+     * Définit le contenu d'un sous arbre RuleCall
+     * @param rule contiens le sous arbre dont le contenu doit être traité
+     */
     function assignRuleCall(rule: GrammarAST.Assignment) {
         const pathRuleCall = rule.terminal;
         if(isRuleCall(pathRuleCall)) {
             if(isTerminalRule(pathRuleCall.rule.ref)){
                 const pathTerminalRule = pathRuleCall.rule.ref;
                 isTerminalRule(pathTerminalRule);
-                syncWriteFile('UML.pu',rule.feature + rule.operator + pathTerminalRule.name,false);
+                syncWriteFile(fileName,rule.feature + rule.operator + pathTerminalRule.name + '\n',false);
                 if(isRegexToken(pathTerminalRule.definition)){
                     //inutile pour l'instant
                 }
@@ -89,86 +181,107 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
     }
 
+    /**
+     * Définit le contenu d'un sous arbre CrossReference
+     * @param rule contiens le sous arbre dont le contenu doit être traité
+     */
     function assignCrossReference(rule: GrammarAST.CrossReference) {
         const pathCrossRef = rule;
         if(isRuleCall(pathCrossRef.terminal)){
             const pathRuleCall = pathCrossRef.terminal;
             if(isTerminalRule(pathRuleCall.rule.ref)){
                 const pathTerminalRule = pathRuleCall.rule.ref;
-                // syncWriteFile('UML.pu',rule.feature + rule.operator + pathTerminalRule.name,false);
+                // syncWriteFile(fileName,rule.feature + rule.operator + pathTerminalRule.name,false);
                 if(isRegexToken(pathTerminalRule.definition)){
                     // pas utilisé
                 }
             }
-            if(isParserRule(pathRuleCall.rule)){
-                // const pathParserRule = pathRuleCall.rule;
-                //call à une fonction de formatage
-            }
-        }
-        if(isTerminalRule(pathCrossRef.type)){
-            const pathTerminalRule = pathCrossRef.type;
-            if(isRegexToken(pathTerminalRule.definition)){
-                syncWriteFile('UML.pu', '\n',false);
-            }
         }
     }
 
-    function makeClass(rule: GrammarAST.AbstractRule) {
-        if(isParserRule(rule)){
-            syncWriteFile('UML.pu', 'class ' + rule.name +  '{\n',false);
-            if(isAlternatives(rule.definition) || isGroup(rule.definition)){
-                const pathAlternative = rule.definition;
-                for(const elem in pathAlternative.elements){
-                    if (isKeyword(pathAlternative.elements[elem])){
-                        const pathKeyword = pathAlternative.elements[elem];
-                        if(isKeyword(pathKeyword)){
-                            // syncWriteFile('UML.pu',pathKeyword.value,false);
+    /** Fonction récursive qui traite les éléments d'un groupe ou d'un alternative
+     * @param rule contiens le sous arbre dont le contenu doit être traité
+     */
+    function groupAlternativeClass(rule: GrammarAST.Group | GrammarAST.Alternatives) {
+        const pathAlternative = rule;
+        for(const elem in pathAlternative.elements){
+            if (isKeyword(pathAlternative.elements[elem])){
+                const pathKeyword = pathAlternative.elements[elem];
+                if(isKeyword(pathKeyword)){
+                    if(isAssignment(pathKeyword.$container.$container)) {
+                        // regarder pour cibler premier et dernier elem
+                        const pathdeterminer = pathKeyword.$container.$container;
+                        if(pathdeterminer.operator === '=') {
+                            if(elem === '0') {
+                                if(isAlternatives(pathKeyword.$container)){
+                                    // syncWriteFile(fileName, + pathKeyword.value + ' ',true);
+                                }
+                            }
+                            if(elem === rule.elements.length.toString()) {
+                                syncWriteFile(fileName, pathKeyword.value + ' \n',true);
+                            }
+                            syncWriteFile(fileName, pathKeyword.value + ' ',false);
                         }
                     }
-                    else{
-                        if(isAssignment(pathAlternative.elements[elem])){
-                            const pathAsign = pathAlternative.elements[elem];
-                            if(isAssignment(pathAsign)){
-                                if(isRuleCall(pathAsign.terminal)){
-                                    assignRuleCall(pathAsign);
-                                }
-                                if(isCrossReference(pathAsign.terminal)){
-                                    assignCrossReference(pathAsign.terminal);
-                                }
-                                if(isParserRule(pathAsign.terminal)){
-                                    //call à une fonction de formatage
-                                }
+                }
+            }
+            else{
+                if(isAssignment(pathAlternative.elements[elem])){
+                    const pathAsign = pathAlternative.elements[elem];
+                    if(isAssignment(pathAsign)){
+                        if(isRuleCall(pathAsign.terminal)){
+                            assignRuleCall(pathAsign);
+                        }
+                        if(isCrossReference(pathAsign.terminal)){
+                            assignCrossReference(pathAsign.terminal);
+                        }
+                        if(isAlternatives(pathAsign.terminal)){
+                            const pathAlternative = pathAsign.terminal;
+                            if(isAlternatives(pathAlternative)){
+                                groupAlternativeClass(pathAlternative);
                             }
                         }
                     }
                 }
+                if(isGroup(pathAlternative.elements[elem])){
+                    const pathGroup = pathAlternative.elements[elem];
+                    if(isGroup(pathGroup)){
+                        groupAlternativeClass(pathGroup);
+                    }
+                }
             }
-            syncWriteFile('UML.pu', '\n}\n',false);
         }
     }
 
-    function linkRuleCall(rule: GrammarAST.Assignment) {
-        isAssignment(rule);
-        let cardinal = '';
-        let destName = '';
-        if(rule.cardinality !== undefined) {
-            cardinal = rule.cardinality;
+    /**
+     * Définit une classe et fait un premier tri dans l'arbre
+     * @param rule contiens la règle à traiter
+     */
+    function makeClass(rule: GrammarAST.AbstractRule | GrammarAST.AbstractElement) {
+        if(isParserRule(rule)){
+            syncWriteFile(fileName, 'class ' + rule.name +  '{\n',false); // écrit le nom de la classe
+            if(isAlternatives(rule.definition) || isGroup(rule.definition)){
+                groupAlternativeClass(rule.definition);
+            }
+            if(isAssignment(rule.definition)){
+                assignRuleCall(rule.definition);
+            }
+            syncWriteFile(fileName, '\n}\n',false); // ferme la classe
         }
-        if(rule.operator === '+=') {
-            cardinal = '*';
-        }
-        if(isParserRule(rule.$container?.$container)) {
-            destName = rule.$container.$container.name;
-        }
+    }
+
+    /**
+     * Définit les dépendences d'un sous arbre Assignement -> RuleCall
+     * @param rule contiens le sous arbre dont les dépendences doivent être traitées
+     */
+    function linkAssignRuleCall(rule: GrammarAST.Assignment) {
+        const cardinal = defCardinality(rule);
+        const destName = recursiveFindParentName(rule);
         const pathRuleCall = rule.terminal;
         if(isRuleCall(pathRuleCall)) {
             if(isParserRule(pathRuleCall.rule.ref)){
                 const pathParserRule = pathRuleCall.rule.ref;
-                syncWriteFile('UML.pu',destName + ' ',false);
-                if(cardinal !== ''){
-                    syncWriteFile('UML.pu','"' + cardinal + '" ',false);
-                }
-                syncWriteFile('UML.pu','*-- ' +'"' + rule.feature + '" ' + pathParserRule.name + '\n',false);
+                syncWriteFile(fileName,destName + ' '+ cardinal + ' *-- ' +'"' + rule.feature + '" ' + pathParserRule.name + '\n',false);
             }
         }
         if(isCrossReference(pathRuleCall)) {
@@ -177,98 +290,143 @@ export function registerUML(connection: Connection, services: LangiumServices): 
                 const pathRuleCall = pathCrossRef.terminal;
                 if(isParserRule(pathRuleCall.rule.ref)){
                     const pathParserRule = pathRuleCall.rule.ref;
-                    syncWriteFile('UML.pu',pathParserRule.name + ' ',false);
-                    if(cardinal !== ''){
-                        syncWriteFile('UML.pu','"' + cardinal + '" ',false);
-                    }
-                    syncWriteFile('UML.pu','*-- ' +'"' + rule.feature + '" ' + destName + '\n',false);
+                    syncWriteFile(fileName,pathParserRule.name + ' ' + cardinal + ' --> ' +'"' + rule.feature + '" ' + destName + '\n',false);
                 }
             }
         }
     }
 
+    /**
+     * traite les dépendences d'un sous arbre Alternative -> RuleCall
+     * @param rule contiens le sous arbre dont les dépendences doivent être traitées
+     */
     function linkAlternativeRuleCall(rule: GrammarAST.AbstractElement) {
         const pathRuleCall = rule;
-        let destName = '';
-        if(isParserRule(rule.$container?.$container)) {
-            destName = rule.$container.$container.name;
-        }
+        const cardinal = defCardinality(pathRuleCall);
+        const destName = recursiveFindParentName(rule);
         if(isRuleCall(pathRuleCall)) {
             if(isParserRule(pathRuleCall.rule.ref)){
                 const pathParserRule = pathRuleCall.rule.ref;
-                syncWriteFile('UML.pu',destName + ' ',false);
-                syncWriteFile('UML.pu','<|-- ' +'"' + pathParserRule.name + '" ' + pathParserRule.name + '\n',false);
+                syncWriteFile(fileName,destName + ' ' + cardinal + ' *-- ' + pathParserRule.name + '\n',false);
             }
         }
     }
 
+    /**
+     * traite les dépendences d'un sous arbre Action
+     * @param rule contiens le sous arbre dont les dépendences doivent être traitées
+     */
+    function linkAction(rule: GrammarAST.Action) {
+        const pathAction = rule;
+        const cardinal = defCardinality(pathAction);
+        const destName = recursiveFindParentName(rule);
+        if(isInferredType(pathAction.inferredType)) {
+            const pathInferredType = pathAction.inferredType;
+            syncWriteFile(fileName,pathInferredType.name + ' ' + cardinal + ' <|-- ' + ' "' + rule.feature + '" ' +  destName + '\n',false);
+        }
+    }
+
+    /**
+     * traite les dépendences d'un sous arbre CrossReference
+     * @param rule contiens le sous arbre dont les dépendences doivent être traitées
+     */
     function linkCrossReference(rule: GrammarAST.Assignment) {
         const pathCrossRef = rule.terminal;
+        const destName = recursiveFindParentName(rule);
         if(isCrossReference(pathCrossRef)){
-            let cardinal = '';
-            let destName = '';
-            if(rule.cardinality !== undefined) {
-                cardinal = rule.cardinality;
-            }
-            if(rule.operator === '+=') {
-                cardinal = '*';
-            }
-            if(isParserRule(rule.$container?.$container)) {
-                destName = rule.$container.$container.name;
-            }
+            const cardinal = defCardinality(rule);
             if(isRuleCall(pathCrossRef.terminal)){
                 const pathRuleCall = pathCrossRef.terminal;
                 if(isTerminalRule(pathRuleCall.rule.ref)){
                     const pathTerminalRule = pathRuleCall.rule.ref;
-                    syncWriteFile('UML.pu',pathCrossRef.type.$refText,false) ;
-                    if (cardinal !== ''){
-                        syncWriteFile('UML.pu',' "' + cardinal +'"',false);
+                    syncWriteFile(fileName,destName  + cardinal + ' *-- ' +  '"' + rule.feature + '" ' + pathTerminalRule.name + '\n' ,false);
+                }
+            }
+            else {
+                if(isParserRule(pathCrossRef.type.ref)){
+                    const pathParserRule = pathCrossRef.type.ref;
+                    syncWriteFile(fileName,destName  + cardinal + ' --> ' +  '"' + rule.feature + '" ' + pathParserRule.name + '\n' ,false);
+                }
+            }
+        }
+    }
+
+    /**
+     * Fonction récursive qui traite les éléments d'un groupe ou d'un alternative
+     * @param rule contiens le sous arbre dont le contenu doit être traité
+     */
+    function groupAlternativeLink(rule: GrammarAST.Group | GrammarAST.Alternatives) {
+        const pathAlternative = rule;
+        for(const elem in pathAlternative.elements){
+            if(isAssignment(pathAlternative.elements[elem])){
+                const pathAsign = pathAlternative.elements[elem];
+                if(isAssignment(pathAsign)){
+                    if(isRuleCall(pathAsign.terminal)){
+                        linkAssignRuleCall(pathAsign);
                     }
-                    syncWriteFile('UML.pu', ' *-- ' +  '"' + rule.feature + '" ' + destName ,false);
-                    if(isRegexToken(pathTerminalRule.definition)){
-                        // pas utilisé
+                    if(isCrossReference(pathAsign.terminal)){
+                        linkCrossReference(pathAsign);
+                    }
+                    if(isAlternatives(pathAsign.terminal)){
+                        const pathAlternative = pathAsign.terminal;
+                        if(isAlternatives(pathAlternative)){
+                            groupAlternativeLink(pathAlternative);
+                        }
+                    }
+                }
+            }
+            else {
+                if(isRuleCall(pathAlternative.elements[elem])){
+                    const pathRuleCall = pathAlternative.elements[elem];
+                    if(isRuleCall(pathRuleCall)){
+                        linkAlternativeRuleCall(pathAlternative.elements[elem]);
+                    }
+                }
+                if(isGroup(pathAlternative.elements[elem] || isAlternatives(pathAlternative.elements[elem]))){
+                    const pathGroup = pathAlternative.elements[elem];
+                    if(isGroup(pathGroup)){
+                        groupAlternativeLink(pathGroup);
+                    }
+                }
+                if (isAction(pathAlternative.elements[elem])){
+                    const pathAction = pathAlternative.elements[elem];
+                    if(isAction(pathAction)){
+                        linkAction(pathAction);
                     }
                 }
             }
         }
     }
 
+    /**
+     * Définit les dépendences d'une règle et fait un premier tri dans l'arbre
+     * @param rule contiens la règle qui doit être traitée
+     */
     function makeLink(rule: GrammarAST.AbstractRule){
         if( isParserRule(rule)){
             if(isAlternatives(rule.definition) || isGroup(rule.definition)){
-                const pathAlternative = rule.definition;
-                for(const elem in pathAlternative.elements){
-                    // if (isKeyword(pathAlternative.elements[elem])){
-                    //     const pathKeyword = pathAlternative.elements[elem];
-                    //     if(isKeyword(pathKeyword)){
-                    //         // syncWriteFile('UML.pu',pathKeyword.value,false);
-                    //     }
-                    // }
-                    if(isAssignment(pathAlternative.elements[elem])){
-                        const pathAsign = pathAlternative.elements[elem];
-                        if(isAssignment(pathAsign)){
-                            if(isRuleCall(pathAsign.terminal)){
-                                linkRuleCall(pathAsign);
-                            }
-                            if(isCrossReference(pathAsign.terminal)){
-                                linkCrossReference(pathAsign);
-                            }
-                            if(isParserRule(pathAsign.terminal)){
-                                //call à une fonction de formatage
-                            }
-                        }
-                    }
-                    else{
-                        if(isRuleCall(pathAlternative.elements[elem])){
-                            const pathRuleCall = pathAlternative.elements[elem];
-                            if(isRuleCall(pathRuleCall)){
-                                linkAlternativeRuleCall(pathAlternative.elements[elem]);
-                            }
-                        }
-                    }
+                const pathAlternativeOrGroup = rule.definition;
+                if(isAlternatives(pathAlternativeOrGroup) || isGroup(pathAlternativeOrGroup)){
+                    groupAlternativeLink(pathAlternativeOrGroup);
                 }
             }
-            syncWriteFile('UML.pu', '\n',false);
+            if(isRuleCall(rule.definition)){
+                const pathRuleCall = rule.definition;
+                syncWriteFile(fileName,rule.name + ' *-- ' + pathRuleCall.rule.$refText + '\n',false);
+            }
+            if(isInferredType(rule.inferredType)){
+                const pathInferredType = rule.inferredType;
+                syncWriteFile(fileName, pathInferredType.name +  ' *-- ' + rule.name +  '\n',false);
+            }
         }
+        syncWriteFile(fileName, '\n',false); // saut de ligne pour la mise en forme
     }
 }
+
+// Essai pour sprotty
+//
+// export class sprottyDiagram extends LangiumDiagramGenerator {
+//     protected override generateRoot(_args: GeneratorContext<AstNode>): SModelRoot | Promise<SModelRoot> {
+//         throw new Error('Method not implemented.');
+//     }
+// }

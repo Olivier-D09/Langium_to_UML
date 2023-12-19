@@ -78,7 +78,6 @@
     }
   },
   "activationEvents": [
-    "onLanguage:langium",
     "onWebviewPanel:railroadDiagram"
   ],
   "vsce": {
@@ -98,7 +97,11 @@
     "langium": "2.1.0",
     "langium-railroad": "2.1.0",
     "vscode-languageserver": "~9.0.1",
-    "ignore": "~5.2.4"
+    "ignore": "~5.2.4",
+    "langium-sprotty": "2.1.0",
+    "node-plantuml": ">0.0.0",
+    "fs" : ">0.0.1-security"
+
   },
   "volta": {
     "node": "18.17.1",
