@@ -1,12 +1,13 @@
 /******************************************************************************
- * Copyright 2023 TypeFox GmbH
+ * Copyright 2023 Université Cote d'Azur
  * This program and the accompanying materials are made available under the
  * terms of the MIT License, which is available in the project root.
  ******************************************************************************/
+
 import { createWriteStream, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import type {Grammar, LangiumServices } from 'langium';
-import { DocumentState, GrammarAST, URI, expandToString } from 'langium';
+import { DocumentState, GrammarAST, URI, expandToString} from 'langium';
 import type { Connection} from 'vscode-languageserver';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import { DOCUMENTS_VALIDATED_NOTIFICATION, RAILROAD_DIAGRAM_REQUEST } from './messages.js';
@@ -14,6 +15,7 @@ import { createGrammarDiagramHtml } from 'langium-railroad';
 import { resolveTransitiveImports } from 'langium/internal';
 import {isAlternatives, isAssignment, isCrossReference, isParserRule, isRegexToken, isRuleCall, isTerminalRule, isGroup, isKeyword, isAction, isInferredType} from '../../../langium/src/grammar/generated/ast.js';
 import plantuml from 'node-plantuml/node_modules/commander';
+
 //import * as vscode from 'vscode';
 
 //import type { GeneratorContext} from 'langium-sprotty';
@@ -128,35 +130,102 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         return '';
     }
 
+    function findGroup(rule: GrammarAST.Group | GrammarAST.Alternatives | GrammarAST.AbstractElement){
+        if(isGroup(rule)){
+            return rule;
+        }
+        if(isParserRule(rule)){
+            return undefined;
+        }
+        else {
+            return findGroup(rule.$container as GrammarAST.Group); // récursion pour remonter l'arbre
+        }
+    }
+
+    function findAssign(rule: GrammarAST.Assignment | GrammarAST.CrossReference | GrammarAST.Alternatives | GrammarAST.Group | GrammarAST.AbstractElement | GrammarAST.Action){
+        if(isAssignment(rule)){
+            return rule;
+        }
+        if(isParserRule(rule)){
+            return undefined;
+        }
+        else {
+            return findAssign(rule.$container as GrammarAST.Assignment); // récursion pour remonter l'arbre
+        }
+    }
+
+    function choiceCardinality(rule: string, second: string, addOperator: string) {
+        let debut = '1';
+        let fin = '1';
+
+        if(second === '+=' || rule === '+=' || addOperator === '+=') {
+            debut = '1';
+            fin ='*';
+        }
+        if(second === '?' || rule === '?' || addOperator === '?') {
+            debut = '0';
+        }
+        if(second === '*' || rule === '*' || addOperator === '*') {
+            fin ='*';
+        }
+        return '"' + debut + '..' + fin + '"';
+    }
+
+    function defFleche(rule: GrammarAST.Assignment | GrammarAST.CrossReference | GrammarAST.Alternatives | GrammarAST.Group | GrammarAST.AbstractElement | GrammarAST.Action | GrammarAST.ParserRule) {
+        let fleche = ' *-- ';
+
+        if(isAssignment(rule) && rule.operator === '='){
+            fleche = ' o-- ' ;
+            return fleche;
+        }
+        if(isAction(rule)){
+            fleche = ' <|--- ';
+            return fleche;
+        }
+        if(isCrossReference(rule)){
+            fleche = ' --> ';
+            return fleche;
+        }
+        return fleche;
+    }
     /**
      * Définit la cardinalité d'un sous arbre
      * @param rule contiens le sous arbre dont la cardinalité doit être extraite
      * @returns la cardinalité du sous arbre
      */
     function defCardinality(rule: GrammarAST.Assignment | GrammarAST.CrossReference | GrammarAST.Alternatives | GrammarAST.Group | GrammarAST.AbstractElement | GrammarAST.Action) {
-        let cardinal = '';
-        // if(isGroup(rule.$container)){
-        //     if(rule.cardinality === '+' && rule.$container.cardinality === '?') {
-        //         cardinal ='"0..1"';
-        //     }
-        //     if(rule.cardinality === '?' && rule.$container.cardinality === '*') {
-        //         cardinal ='"0..*"';
-        //     }
-        //     if(rule.cardinality === '*' && rule.$container.cardinality === '?') {
-        //         cardinal ='"0..*"';
-        //     }
-        // }
-        if(rule.cardinality === '+') {
-            cardinal ='"0..1"';
+        let cardinal = '"1..1"';
+        let first = '';
+        let second = '';
+        let addOperator = '';
+        const pathGroup = findGroup(rule);
+        const pathAssignement = findAssign(rule);
+
+        if(isAssignment(rule) && rule.cardinality === undefined){
+            first = rule.operator;
         }
-        if(rule.cardinality === '?') {
-            cardinal ='"0..1"';
+        if(pathAssignement !== undefined){
+            if(pathAssignement.cardinality !== undefined){
+                second = pathAssignement.cardinality;
+            }
+            if(pathAssignement.operator === '+=') {
+                if(pathAssignement.operator !== first){
+                    addOperator = pathAssignement.operator;
+                }
+                cardinal ='"1..*"';
+            }
         }
-        if(rule.cardinality === '*') {
-            cardinal ='"1..*"';
+        if(pathGroup !== undefined){
+            if(pathGroup.cardinality !== undefined){
+                if (pathGroup.cardinality !== first){
+                    second = pathGroup.cardinality;
+                }
+            }
         }
-        else {
-            cardinal ='"1..1"';
+
+        if(first !== undefined && pathGroup !== undefined && pathAssignement !== undefined){
+            cardinal = choiceCardinality(first,second,addOperator);
+            return cardinal;
         }
         return cardinal;
     }
@@ -213,14 +282,16 @@ export function registerUML(connection: Connection, services: LangiumServices): 
                         const pathdeterminer = pathKeyword.$container.$container;
                         if(pathdeterminer.operator === '=') {
                             if(elem === '0') {
-                                if(isAlternatives(pathKeyword.$container)){
-                                    // syncWriteFile(fileName, + pathKeyword.value + ' ',true);
+                                if(isAssignment(pathdeterminer)){
+                                    syncWriteFile(fileName,pathdeterminer.feature + pathdeterminer.operator + pathKeyword.value + ',',false);
                                 }
                             }
-                            if(elem === rule.elements.length.toString()) {
-                                syncWriteFile(fileName, pathKeyword.value + ' \n',true);
+                            if(elem === (rule.elements.length-1).toString()) {
+                                syncWriteFile(fileName, pathKeyword.value + ' \n',false);
                             }
-                            syncWriteFile(fileName, pathKeyword.value + ' ',false);
+                            if(elem !== '0' && elem !== (rule.elements.length-1).toString()) {
+                                syncWriteFile(fileName, pathKeyword.value + ',',false);
+                            }
                         }
                     }
                 }
@@ -280,8 +351,9 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         const pathRuleCall = rule.terminal;
         if(isRuleCall(pathRuleCall)) {
             if(isParserRule(pathRuleCall.rule.ref)){
+                const fleche = defFleche(rule);
                 const pathParserRule = pathRuleCall.rule.ref;
-                syncWriteFile(fileName,destName + ' '+ cardinal + ' *-- ' +'"' + rule.feature + '" ' + pathParserRule.name + '\n',false);
+                syncWriteFile(fileName,destName + ' '+ cardinal + fleche +'"' + rule.feature + '" ' + pathParserRule.name + '\n',false);
             }
         }
         if(isCrossReference(pathRuleCall)) {
@@ -289,8 +361,9 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             if(isRuleCall(pathCrossRef.terminal)){
                 const pathRuleCall = pathCrossRef.terminal;
                 if(isParserRule(pathRuleCall.rule.ref)){
+                    const fleche = defFleche(pathCrossRef);
                     const pathParserRule = pathRuleCall.rule.ref;
-                    syncWriteFile(fileName,pathParserRule.name + ' ' + cardinal + ' --> ' +'"' + rule.feature + '" ' + destName + '\n',false);
+                    syncWriteFile(fileName,pathParserRule.name + ' ' + cardinal + fleche +'"' + rule.feature + '" ' + destName + '\n',false);
                 }
             }
         }
@@ -304,10 +377,11 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         const pathRuleCall = rule;
         const cardinal = defCardinality(pathRuleCall);
         const destName = recursiveFindParentName(rule);
+        const fleche = defFleche(rule);
         if(isRuleCall(pathRuleCall)) {
             if(isParserRule(pathRuleCall.rule.ref)){
                 const pathParserRule = pathRuleCall.rule.ref;
-                syncWriteFile(fileName,destName + ' ' + cardinal + ' *-- ' + pathParserRule.name + '\n',false);
+                syncWriteFile(fileName,destName + ' ' + cardinal + fleche + pathParserRule.name + '\n',false);
             }
         }
     }
@@ -320,9 +394,14 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         const pathAction = rule;
         const cardinal = defCardinality(pathAction);
         const destName = recursiveFindParentName(rule);
+        let feature = ' "' + rule.feature + '" ' ;
+        const fleche = defFleche(rule);
         if(isInferredType(pathAction.inferredType)) {
             const pathInferredType = pathAction.inferredType;
-            syncWriteFile(fileName,pathInferredType.name + ' ' + cardinal + ' <|-- ' + ' "' + rule.feature + '" ' +  destName + '\n',false);
+            if(rule.feature === undefined) {
+                feature = '';
+            }
+            syncWriteFile(fileName,pathInferredType.name + ' ' + cardinal + fleche + feature +  destName + '\n',false);
         }
     }
 
@@ -338,8 +417,9 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             if(isRuleCall(pathCrossRef.terminal)){
                 const pathRuleCall = pathCrossRef.terminal;
                 if(isTerminalRule(pathRuleCall.rule.ref)){
+                    const fleche = defFleche(rule);
                     const pathTerminalRule = pathRuleCall.rule.ref;
-                    syncWriteFile(fileName,destName  + cardinal + ' *-- ' +  '"' + rule.feature + '" ' + pathTerminalRule.name + '\n' ,false);
+                    syncWriteFile(fileName,destName  + cardinal + fleche +  '"' + rule.feature + '" ' + pathTerminalRule.name + '\n' ,false);
                 }
             }
             else {
@@ -403,7 +483,7 @@ export function registerUML(connection: Connection, services: LangiumServices): 
      * @param rule contiens la règle qui doit être traitée
      */
     function makeLink(rule: GrammarAST.AbstractRule){
-        if( isParserRule(rule)){
+        if(isParserRule(rule)){
             if(isAlternatives(rule.definition) || isGroup(rule.definition)){
                 const pathAlternativeOrGroup = rule.definition;
                 if(isAlternatives(pathAlternativeOrGroup) || isGroup(pathAlternativeOrGroup)){
@@ -412,11 +492,13 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             }
             if(isRuleCall(rule.definition)){
                 const pathRuleCall = rule.definition;
-                syncWriteFile(fileName,rule.name + ' *-- ' + pathRuleCall.rule.$refText + '\n',false);
+                const fleche =  defFleche(rule);
+                syncWriteFile(fileName,rule.name + fleche + pathRuleCall.rule.$refText + '\n',false);
             }
             if(isInferredType(rule.inferredType)){
+                const fleche = defFleche(rule);
                 const pathInferredType = rule.inferredType;
-                syncWriteFile(fileName, pathInferredType.name +  ' *-- ' + rule.name +  '\n',false);
+                syncWriteFile(fileName, pathInferredType.name +  fleche + rule.name +  '\n',false);
             }
         }
         syncWriteFile(fileName, '\n',false); // saut de ligne pour la mise en forme

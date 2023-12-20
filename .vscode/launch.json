@@ -157,19 +157,6 @@
             "args": ["run", "${relativeFile}"],
             "smartStep": true,
             "console": "integratedTerminal",
-        },
-        {
-        "name": "Run Grammar & railroad",
-            "type": ["extensionHost", "node"],
-            "request": ["launch" , "attach"],
-            "skipFiles": ["<node_internals>/**"],
-            "runtimeExecutable": "${execPath}",
-            "args": [
-                "${workspaceFolder}/examples",
-                "--extensionDevelopmentPath=${workspaceFolder}/packages/langium-vscode"
-            ],
-            "sourceMaps": true,
-            "outFiles": ["${workspaceFolder}/{packages,examples}/*/{lib,out}/**/*.js"]
         }
     ]
 }
