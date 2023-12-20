@@ -26,12 +26,23 @@
         "title": "Show Railroad Syntax Diagram",
         "category": "Langium",
         "icon": "$(list-tree)"
+      },
+      {
+        "command": "langium.regiserUml",
+        "title": "Show Diagram",
+        "category": "Langium",
+        "icon": "$(list-tree)"
       }
     ],
     "menus": {
       "editor/title": [
         {
           "command": "langium.showRailroadDiagram",
+          "when": "editorLangId == langium",
+          "group": "navigation"
+        },
+        {
+          "command": "langium.regiserUml",
           "when": "editorLangId == langium",
           "group": "navigation"
         }

@@ -3,6 +3,7 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "out",
+    "allowJs": true,
     "sourceMap": true
   },
   "references": [{ "path": "../langium/tsconfig.src.json" }],

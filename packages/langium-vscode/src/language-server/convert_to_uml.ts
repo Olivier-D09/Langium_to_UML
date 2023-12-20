@@ -4,7 +4,7 @@
  * terms of the MIT License, which is available in the project root.
  ******************************************************************************/
 
-import { createWriteStream, readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import type {Grammar, LangiumServices } from 'langium';
 import { DocumentState, GrammarAST, URI, expandToString} from 'langium';
@@ -14,24 +14,15 @@ import { DOCUMENTS_VALIDATED_NOTIFICATION, RAILROAD_DIAGRAM_REQUEST } from './me
 import { createGrammarDiagramHtml } from 'langium-railroad';
 import { resolveTransitiveImports } from 'langium/internal';
 import {isAlternatives, isAssignment, isCrossReference, isParserRule, isRegexToken, isRuleCall, isTerminalRule, isGroup, isKeyword, isAction, isInferredType} from '../../../langium/src/grammar/generated/ast.js';
-import plantuml from 'node-plantuml/node_modules/commander';
+//import plantuml from 'node-plantuml/node_modules/commander';
 
-//import * as vscode from 'vscode';
+import {exportUml} from './exportUml.js';
 
 //import type { GeneratorContext} from 'langium-sprotty';
 //import { LangiumDiagramGenerator } from 'langium-sprotty';
 //import type { SModelRoot } from 'sprotty-protocol';
 
 export function registerUML(connection: Connection, services: LangiumServices): void {
-    // get path of active file
-    // const activeEditor = vscode.window.activeTextEditor;
-    // const activeDocument = activeEditor?.document.uri;
-    // const activePath = activeDocument?.path.split('/').pop();
-    // const activeFileNameSplit = activePath?.split('.').shift();
-
-    // const path = activePathSplit?.join('/');
-    // const pathFile = path + '/' + fileName;
-
     const fileName = 'arithmetic' + '.pu' ;
 
     const documentBuilder = services.shared.workspace.DocumentBuilder;
@@ -61,9 +52,12 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             });
             syncWriteFile(fileName,'@enduml',false);
 
+            // Generate the diagram
             try {
-                const gen = plantuml.generate(fileName);
-                gen.out.pip(createWriteStream('UML.png'));
+                exportUml(__dirname+'\\',fileName);
+                //const gen = plantuml.generate(fileName);
+                //console.log(gen);
+                //gen.out.pip(createWriteStream('UML.png'));
 
             }catch (e){
                 console.log(e);
