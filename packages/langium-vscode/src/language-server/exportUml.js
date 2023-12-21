@@ -1,8 +1,7 @@
 
 import { readFileSync, writeFileSync } from 'fs';
 
-export function exportUml(path, filename) {
-
+export function exportUml(path, filename) { // ne fonctionnne pas, probablement un problème de chemin d'accès
     var plantuml = require('node-plantuml');
     var fs = require('fs');
 

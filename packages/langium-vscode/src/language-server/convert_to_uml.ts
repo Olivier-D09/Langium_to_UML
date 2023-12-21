@@ -14,8 +14,6 @@ import { DOCUMENTS_VALIDATED_NOTIFICATION, RAILROAD_DIAGRAM_REQUEST } from './me
 import { createGrammarDiagramHtml } from 'langium-railroad';
 import { resolveTransitiveImports } from 'langium/internal';
 import {isAlternatives, isAssignment, isCrossReference, isParserRule, isRegexToken, isRuleCall, isTerminalRule, isGroup, isKeyword, isAction, isInferredType} from '../../../langium/src/grammar/generated/ast.js';
-//import plantuml from 'node-plantuml/node_modules/commander';
-
 import {exportUml} from './exportUml.js';
 
 //import type { GeneratorContext} from 'langium-sprotty';
@@ -52,7 +50,7 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             });
             syncWriteFile(fileName,'@enduml',false);
 
-            // Generate the diagram
+            // Generate the diagram with PlantUML
             try {
                 exportUml(__dirname+'\\',fileName);
                 //const gen = plantuml.generate(fileName);
@@ -124,6 +122,11 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         return '';
     }
 
+    /**
+     * recherche la première règle de type group dans un sous arbre. Pourrait être améliauré avec la recherche d'une liste de Group.
+     * @param rule contiens le sous arbre dont la règle de type group doit être trouvée
+     * @returns la règle de type group trouvée
+     */
     function findGroup(rule: GrammarAST.Group | GrammarAST.Alternatives | GrammarAST.AbstractElement){
         if(isGroup(rule)){
             return rule;
@@ -136,6 +139,11 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
     }
 
+    /**
+     * recherche la première règle de type Assignment dans un sous arbre. Pourrait être améliauré avec la recherche d'une liste d'Assignment.
+     * @param rule contiens le sous arbre dont la règle de type Assignment doit être trouvée
+     * @returns la règle de type Assignment trouvée
+     */
     function findAssign(rule: GrammarAST.Assignment | GrammarAST.CrossReference | GrammarAST.Alternatives | GrammarAST.Group | GrammarAST.AbstractElement | GrammarAST.Action){
         if(isAssignment(rule)){
             return rule;
@@ -148,6 +156,13 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
     }
 
+    /**
+     * Définit la cardinalité d'un sous arbre, ayant plusieurs éléments déterminant la cardinalité, le fonctionnement n'est pas efficace
+     * @param rule contiens l'élément de type Assignment si il existe
+     * @param second contiens la cardinalité de l'élément de type Group si il existe
+     * @param addOperator contiens l'élément de cardinalité de Assignment si il est différent du premier
+     * @returns la cardinalité du sous arbre
+     */
     function choiceCardinality(rule: string, second: string, addOperator: string) {
         let debut = '1';
         let fin = '1';
@@ -165,6 +180,10 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         return '"' + debut + '..' + fin + '"';
     }
 
+    /**
+     * Définit de manière approximative la flèche d'une relation entre 2 clases. Fonctionne relativement bien sur les exemples présents dans le dossier examples. à été designé à la main avec des exemples
+     * @param rule contiens le sous arbre dont la flèche doit être définie
+     */
     function defFleche(rule: GrammarAST.Assignment | GrammarAST.CrossReference | GrammarAST.Alternatives | GrammarAST.Group | GrammarAST.AbstractElement | GrammarAST.Action | GrammarAST.ParserRule) {
         let fleche = ' *-- ';
 
@@ -182,8 +201,9 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
         return fleche;
     }
+
     /**
-     * Définit la cardinalité d'un sous arbre
+     * Définit la cardinalité d'un sous arbre, fonctionne relativement bien sur les exemples présents dans le dossier examples. à été designé à la main avec des exemples
      * @param rule contiens le sous arbre dont la cardinalité doit être extraite
      * @returns la cardinalité du sous arbre
      */
@@ -198,22 +218,19 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         if(isAssignment(rule) && rule.cardinality === undefined){
             first = rule.operator;
         }
-        if(pathAssignement !== undefined){
-            if(pathAssignement.cardinality !== undefined){
-                second = pathAssignement.cardinality;
-            }
-            if(pathAssignement.operator === '+=') {
-                if(pathAssignement.operator !== first){
-                    addOperator = pathAssignement.operator;
-                }
-                cardinal ='"1..*"';
-            }
-        }
         if(pathGroup !== undefined){
             if(pathGroup.cardinality !== undefined){
                 if (pathGroup.cardinality !== first){
                     second = pathGroup.cardinality;
                 }
+            }
+        }
+        if(pathAssignement !== undefined){
+            if(pathAssignement.operator === '+=') {
+                if(pathAssignement.operator !== second){
+                    addOperator = pathAssignement.operator;
+                }
+                cardinal ='"1..*"';
             }
         }
 
@@ -223,8 +240,6 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
         return cardinal;
     }
-
-    // function defSign(rule: GrammarAST.Assignment | GrammarAST.CrossReference | GrammarAST.Alternatives) {    }
 
     /**
      * Définit le contenu d'un sous arbre RuleCall
@@ -262,6 +277,32 @@ export function registerUML(connection: Connection, services: LangiumServices): 
         }
     }
 
+    /**
+     * Extrait le contenu d'un sous arbre Keyword
+     * @param rule contiens le sous arbre de type Keyword dont le contenu doit être traité
+     * @param elem contiens l'index de l'élément dans le group
+     * @param mainRule contiens la règle de niveau supérieur
+     */
+    function keywordClass(rule: GrammarAST.Keyword,elem: string,mainRule: GrammarAST.Group | GrammarAST.Alternatives) {
+        const pathKeyword = rule;
+        if(isAssignment(pathKeyword.$container.$container)) {
+            const pathdeterminer = pathKeyword.$container.$container;
+            if(pathdeterminer.operator === '=') { // cible le premier element de la liste d'éléments
+                if(elem === '0') {
+                    if(isAssignment(pathdeterminer)){
+                        syncWriteFile(fileName,pathdeterminer.feature + pathdeterminer.operator + pathKeyword.value + ',',false);
+                    }
+                }
+                if(elem === (mainRule.elements.length-1).toString()) { // cible le dernier element de la liste.
+                    syncWriteFile(fileName, pathKeyword.value + ' \n',false);
+                }
+                if(elem !== '0' && elem !== (mainRule.elements.length-1).toString()) {
+                    syncWriteFile(fileName, pathKeyword.value + ',',false);
+                }
+            }
+        }
+    }
+
     /** Fonction récursive qui traite les éléments d'un groupe ou d'un alternative
      * @param rule contiens le sous arbre dont le contenu doit être traité
      */
@@ -271,23 +312,7 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             if (isKeyword(pathAlternative.elements[elem])){
                 const pathKeyword = pathAlternative.elements[elem];
                 if(isKeyword(pathKeyword)){
-                    if(isAssignment(pathKeyword.$container.$container)) {
-                        // regarder pour cibler premier et dernier elem
-                        const pathdeterminer = pathKeyword.$container.$container;
-                        if(pathdeterminer.operator === '=') {
-                            if(elem === '0') {
-                                if(isAssignment(pathdeterminer)){
-                                    syncWriteFile(fileName,pathdeterminer.feature + pathdeterminer.operator + pathKeyword.value + ',',false);
-                                }
-                            }
-                            if(elem === (rule.elements.length-1).toString()) {
-                                syncWriteFile(fileName, pathKeyword.value + ' \n',false);
-                            }
-                            if(elem !== '0' && elem !== (rule.elements.length-1).toString()) {
-                                syncWriteFile(fileName, pathKeyword.value + ',',false);
-                            }
-                        }
-                    }
+                    keywordClass(pathKeyword,elem,rule);
                 }
             }
             else{
