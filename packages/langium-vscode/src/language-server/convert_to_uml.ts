@@ -14,8 +14,9 @@ import { DOCUMENTS_VALIDATED_NOTIFICATION, RAILROAD_DIAGRAM_REQUEST } from './me
 import { createGrammarDiagramHtml } from 'langium-railroad';
 import { resolveTransitiveImports } from 'langium/internal';
 import {isAlternatives, isAssignment, isCrossReference, isParserRule, isRegexToken, isRuleCall, isTerminalRule, isGroup, isKeyword, isAction, isInferredType} from '../../../langium/src/grammar/generated/ast.js';
-import {exportUml} from './exportUml.js';
+import {exportUml} from './exportUml.js'; // contiens la fonction de transformation en visuel
 
+// Essai pour sprotty (non fonctionnel) nécessaire pour le code commenté en fin de fichier
 //import type { GeneratorContext} from 'langium-sprotty';
 //import { LangiumDiagramGenerator } from 'langium-sprotty';
 //import type { SModelRoot } from 'sprotty-protocol';
@@ -45,12 +46,12 @@ export function registerUML(connection: Connection, services: LangiumServices): 
             const importedGrammars = resolveTransitiveImports(documents, grammar);
             const rules = grammar.rules;
             rules.forEach(rule => {
-                makeClass(rule); // make class & arg of class
-                makeLink(rule); // make link between class
+                makeClass(rule); // fait le contenu de la classe du diagramUML
+                makeLink(rule); // fait les liens entre les classes du diagramUML
             });
             syncWriteFile(fileName,'@enduml',false);
 
-            // Generate the diagram with PlantUML
+            // Generate the diagram with PlantUML Génère uniquement des fichiers vide pour le moment
             try {
                 exportUml(__dirname+'\\',fileName);
                 //const gen = plantuml.generate(fileName);
